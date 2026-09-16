@@ -1,12 +1,14 @@
-"""Load the HR Excel exports and validate them against the raw schemas."""
+"""Load the HR Excel exports, validate them and write them into DuckDB."""
 
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import pandera.pandas as pa
 
+from pipeline.db import DEFAULT_DB_PATH, connect, count_rows, write_table
 from pipeline.excel import read_excel_source
 from pipeline.schemas import AssignmentSchema, EmployeeSchema
 from pipeline.sources import DEFAULT_DATA_DIR, assignments_source, employees_source
@@ -45,6 +47,13 @@ def main() -> int:
 
     log.info("employees: %d rows, %d columns", *employees.shape)
     log.info("assignments: %d rows, %d columns", *assignments.shape)
+
+    loaded_at = datetime.now(timezone.utc)
+    with connect(DEFAULT_DB_PATH) as con:
+        for table, df in (("employees", employees), ("assignments", assignments)):
+            appended = write_table(con, df, table, loaded_at=loaded_at)
+            log.info("raw.%s: %d rows appended, %d total", table, appended, count_rows(con, table))
+    log.info("batch %s written to %s", loaded_at.isoformat(timespec="seconds"), DEFAULT_DB_PATH)
     return 0
 
 

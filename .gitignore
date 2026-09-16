@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.duckdb
+*.duckdb.wal
+.env
+project/scripts/
+target/
+dbt_packages/
+logs/
+.claude
