@@ -1,11 +1,17 @@
+# python
 .venv/
 __pycache__/
 *.py[cod]
+.env
+
+# duckdb warehouse (built by `uv run main.py`)
 *.duckdb
 *.duckdb.wal
-.env
+
+# local helper scripts
 project/scripts/
+
+# dbt
 target/
 dbt_packages/
 logs/
-.claude

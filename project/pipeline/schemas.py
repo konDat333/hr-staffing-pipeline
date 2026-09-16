@@ -1,10 +1,13 @@
 """Pandera schemas for the raw HR exports.
 
-These validate the *source* data as it comes out of the HR system, after
-column renaming but before any business cleaning. The goal is to fail fast
-on structural problems (missing columns, wrong types, broken identifiers,
-impossible values) rather than to enforce downstream business rules -
-those live in dbt.
+These are *row-level* contracts: every check here can be evaluated on a
+single row in isolation (format, type, allowed values, consistency between
+fields of the same row). That property is what makes quarantine possible -
+a failing row can be set aside without affecting the verdict on any other.
+
+Relational rules (uniqueness of ids, referential integrity between rows or
+files, one project code -> one name) are deliberately NOT here: they are
+properties of the data set, not of a row, and live in dbt tests instead.
 """
 
 import pandera.pandas as pa
@@ -22,10 +25,10 @@ BILLABLE_RAW_VALUES = {"Y", "Yes", "N", "No"}
 
 
 class EmployeeSchema(pa.DataFrameModel):
-    employee_id: Series[str] = pa.Field(str_matches=EMPLOYEE_ID_PATTERN, unique=True)
+    employee_id: Series[str] = pa.Field(str_matches=EMPLOYEE_ID_PATTERN)
     first_name: Series[str]
     last_name: Series[str]
-    email: Series[str] = pa.Field(str_matches=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", unique=True)
+    email: Series[str] = pa.Field(str_matches=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     department: Series[str]
     job_title: Series[str]
     hire_date: Series[pa.DateTime]
@@ -47,13 +50,9 @@ class EmployeeSchema(pa.DataFrameModel):
         """Inactive employees must have a termination date and vice versa."""
         return (df["status"] == "Inactive") == df["termination_date"].notna()
 
-    @pa.dataframe_check
-    def reports_to_is_known_employee(cls, df) -> Series[bool]:
-        return df["reports_to"].isna() | df["reports_to"].isin(df["employee_id"])
-
 
 class AssignmentSchema(pa.DataFrameModel):
-    assignment_id: Series[str] = pa.Field(str_matches=ASSIGNMENT_ID_PATTERN, unique=True)
+    assignment_id: Series[str] = pa.Field(str_matches=ASSIGNMENT_ID_PATTERN)
     employee_id: Series[str] = pa.Field(str_matches=EMPLOYEE_ID_PATTERN)
     project_code: Series[str] = pa.Field(str_matches=PROJECT_CODE_PATTERN)
     project_name: Series[str]
@@ -65,13 +64,3 @@ class AssignmentSchema(pa.DataFrameModel):
     class Config:
         strict = True
         coerce = True
-
-    @pa.dataframe_check
-    def one_assignment_per_employee_per_project(cls, df) -> Series[bool]:
-        return ~df.duplicated(subset=["employee_id", "project_code"], keep=False)
-
-    @pa.dataframe_check
-    def project_code_has_single_name(cls, df) -> Series[bool]:
-        """A project code must not map to different project names."""
-        names_per_code = df.groupby("project_code")["project_name"].transform("nunique")
-        return names_per_code == 1
