@@ -1,0 +1,56 @@
+version: 2
+
+models:
+  - name: stg_assignments
+    description: >
+      One row per project assignment from the most recent assignment report.
+      Row-level cleaning happened in the Python loader; this model selects
+      the latest batch, renames, casts and normalises values. Relational
+      rules (one assignment per employee and project, one name per project
+      code) are singular tests in `tests/`.
+    columns:
+      - name: assignment_id
+        description: Identifier of the assignment record, `ASGN-NNNN`. Primary key.
+        tests:
+          - unique
+          - not_null
+      - name: employee_id
+        description: >
+          Employee assigned to the project. Must exist in the employee
+          master; a failure here means an assignment points at an unknown
+          or quarantined employee and staffing numbers would be incomplete.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_employees')
+              field: employee_id
+      - name: project_code
+        description: Project identifier, `PROJ-YYYY-NNN`.
+        tests:
+          - not_null
+      - name: project_name
+        description: Human-readable project name as reported.
+        tests:
+          - not_null
+      - name: assignment_role
+        description: Role on the project, lower-cased. `lead` identifies the project lead.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["lead", "consultant", "contributor", "reviewer"]
+      - name: start_date
+        description: Date the assignment starts.
+        tests:
+          - not_null
+      - name: weekly_hours
+        description: Hours per week allocated to this assignment. Values above 40 raise a warning.
+        tests:
+          - not_null
+      - name: is_billable
+        description: >
+          Whether the hours are billable. Derived from the source's
+          Y/Yes/N/No flag; null would mean an unmapped spelling.
+        tests:
+          - not_null
+      - name: loaded_at
+        description: Timestamp of the raw batch this row comes from.

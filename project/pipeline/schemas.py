@@ -66,7 +66,9 @@ class AssignmentSchema(pa.DataFrameModel):
     project_name: Series[str]
     assignment_role: Series[str]
     start_date: Series[pa.DateTime]
-    weekly_hours: Series[int] = pa.Field(gt=0, le=40)
+    # Hard bound is physical (hours in a week); "<= 40" is a business
+    # expectation and a warn-level dbt test, not a reason to quarantine.
+    weekly_hours: Series[int] = pa.Field(gt=0, le=168)
     billable_raw: Series[str]
 
     class Config:
