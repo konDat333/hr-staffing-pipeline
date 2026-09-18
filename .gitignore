@@ -15,3 +15,6 @@ project/scripts/
 target/
 dbt_packages/
 logs/
+
+
+project_descr.md

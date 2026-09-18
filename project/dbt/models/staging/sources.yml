@@ -1,0 +1,25 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Append-only landing zone written by main.py. Every load appends all
+      rows with a shared _loaded_at batch timestamp; staging models pick the
+      latest batch. Tests here apply to the latest batch only.
+    schema: raw
+    tables:
+      - name: employees
+        description: Validated rows of the HR employee master export.
+        columns:
+          - name: email
+            description: >
+              Work e-mail. PII - checked for duplicates here and not
+              propagated beyond raw. Uniqueness is required among active
+              employees only: HR may reuse an address when someone is
+              re-hired under a new employee_id.
+            tests:
+              - unique:
+                  config:
+                    where: "_loaded_at = (select max(_loaded_at) from raw.employees) and lower(status) = 'active'"
+      - name: assignments
+        description: Validated rows of the project assignment report.

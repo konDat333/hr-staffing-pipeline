@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: stg_employees
+    description: >
+      One row per employee from the most recent HR export. Row-level
+      cleaning (formats, allowed values, date consistency) already happened
+      in the Python loader; this model selects the latest batch, renames,
+      casts and normalises values. Relational rules are tested here.
+    columns:
+      - name: employee_id
+        description: HR identifier, `EMP-NNNN`. Primary key.
+        tests:
+          - unique
+          - not_null
+      - name: first_name
+        description: Given name as exported by HR.
+        tests:
+          - not_null
+      - name: last_name
+        description: Family name as exported by HR.
+        tests:
+          - not_null
+      - name: department
+        description: Department the employee belongs to.
+      - name: job_title
+        description: Job title as exported by HR.
+      - name: hire_date
+        description: First day of employment.
+        tests:
+          - not_null
+      - name: termination_date
+        description: Last day of employment; null while the employee is active.
+      - name: status
+        description: Employment status, lower-cased to `active` or `inactive`.
+        tests:
+          - accepted_values:
+              values: ["active", "inactive"]
+      - name: manager_employee_id
+        description: "`employee_id` of the person this employee reports to; null for top-level managers."
+        tests:
+          - relationships:
+              to: ref('stg_employees')
+              field: employee_id
+      - name: loaded_at
+        description: Timestamp of the raw batch this row comes from.

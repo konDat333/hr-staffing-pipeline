@@ -1,0 +1,9 @@
+# Lives next to dbt_project.yml so `dbt` commands work from this folder
+# without any ~/.dbt setup. The database file is the one main.py writes to.
+hr_staffing:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', '../warehouse.duckdb') }}"
+      threads: 1

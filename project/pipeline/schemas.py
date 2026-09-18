@@ -5,6 +5,10 @@ single row in isolation (format, type, allowed values, consistency between
 fields of the same row). That property is what makes quarantine possible -
 a failing row can be set aside without affecting the verdict on any other.
 
+Categorical values (status, role, billable flag) are validated
+case-insensitively: casing is formatting, not a data error. dbt staging
+canonicalises them to lower case.
+
 Relational rules (uniqueness of ids, referential integrity between rows or
 files, one project code -> one name) are deliberately NOT here: they are
 properties of the data set, not of a row, and live in dbt tests instead.
@@ -17,11 +21,11 @@ EMPLOYEE_ID_PATTERN = r"^EMP-\d{4}$"
 ASSIGNMENT_ID_PATTERN = r"^ASGN-\d{4}$"
 PROJECT_CODE_PATTERN = r"^PROJ-\d{4}-\d{3}$"
 
-EMPLOYEE_STATUSES = {"Active", "Inactive"}
-ASSIGNMENT_ROLES = {"Lead", "Consultant", "Contributor", "Reviewer"}
+EMPLOYEE_STATUSES = {"active", "inactive"}
+ASSIGNMENT_ROLES = {"lead", "consultant", "contributor", "reviewer"}
 # The export is inconsistent here (Y/Yes/N/No); we accept all spellings at
 # the raw layer and normalise them downstream.
-BILLABLE_RAW_VALUES = {"Y", "Yes", "N", "No"}
+BILLABLE_RAW_VALUES = {"y", "yes", "n", "no"}
 
 
 class EmployeeSchema(pa.DataFrameModel):
@@ -33,12 +37,16 @@ class EmployeeSchema(pa.DataFrameModel):
     job_title: Series[str]
     hire_date: Series[pa.DateTime]
     termination_date: Series[pa.DateTime] = pa.Field(nullable=True)
-    status: Series[str] = pa.Field(isin=EMPLOYEE_STATUSES)
+    status: Series[str]
     reports_to: Series[str] = pa.Field(str_matches=EMPLOYEE_ID_PATTERN, nullable=True)
 
     class Config:
         strict = True
         coerce = True
+
+    @pa.check("status")
+    def status_in_domain(cls, status: Series[str]) -> Series[bool]:
+        return status.str.lower().isin(EMPLOYEE_STATUSES)
 
     @pa.dataframe_check
     def termination_after_hire(cls, df) -> Series[bool]:
@@ -48,7 +56,7 @@ class EmployeeSchema(pa.DataFrameModel):
     @pa.dataframe_check
     def status_matches_termination(cls, df) -> Series[bool]:
         """Inactive employees must have a termination date and vice versa."""
-        return (df["status"] == "Inactive") == df["termination_date"].notna()
+        return (df["status"].str.lower() == "inactive") == df["termination_date"].notna()
 
 
 class AssignmentSchema(pa.DataFrameModel):
@@ -56,11 +64,19 @@ class AssignmentSchema(pa.DataFrameModel):
     employee_id: Series[str] = pa.Field(str_matches=EMPLOYEE_ID_PATTERN)
     project_code: Series[str] = pa.Field(str_matches=PROJECT_CODE_PATTERN)
     project_name: Series[str]
-    assignment_role: Series[str] = pa.Field(isin=ASSIGNMENT_ROLES)
+    assignment_role: Series[str]
     start_date: Series[pa.DateTime]
     weekly_hours: Series[int] = pa.Field(gt=0, le=40)
-    billable_raw: Series[str] = pa.Field(isin=BILLABLE_RAW_VALUES)
+    billable_raw: Series[str]
 
     class Config:
         strict = True
         coerce = True
+
+    @pa.check("assignment_role")
+    def role_in_domain(cls, role: Series[str]) -> Series[bool]:
+        return role.str.lower().isin(ASSIGNMENT_ROLES)
+
+    @pa.check("billable_raw")
+    def billable_in_domain(cls, billable: Series[str]) -> Series[bool]:
+        return billable.str.lower().isin(BILLABLE_RAW_VALUES)
