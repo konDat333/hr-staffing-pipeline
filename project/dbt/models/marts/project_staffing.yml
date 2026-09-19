@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: project_staffing
+    description: >
+      Staffing overview per project: who leads it, how many active employees
+      are assigned and how many weekly hours they add up to. Every project
+      present in the assignment report appears, including projects whose
+      whole team is inactive.
+    columns:
+      - name: project_code
+        description: Project identifier, `PROJ-YYYY-NNN`. Primary key.
+        tests:
+          - unique
+          - not_null
+      - name: project_name
+        description: Project name as reported in the assignment export.
+        tests:
+          - not_null
+      - name: lead_employee_id
+        description: >
+          `employee_id` of the project lead: an active employee assigned
+          with role `lead`. When several active leads exist, the billable
+          one is preferred, then the one with more weekly hours, then the
+          earliest assignment. Null when the project has no active lead.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_employees')
+                field: employee_id
+      - name: lead_name
+        description: Full name of the project lead; null when there is none.
+      - name: active_lead_count
+        description: >
+          Number of active employees assigned as `lead`. Values above 1 are
+          reported as a warning - the source should name a single lead.
+        tests:
+          - not_null
+      - name: team_size
+        description: Number of distinct active employees assigned to the project. 0 when nobody active is assigned.
+        tests:
+          - not_null
+      - name: total_weekly_hours
+        description: Sum of weekly hours over the project's active assignments. 0 when nobody active is assigned.
+        tests:
+          - not_null

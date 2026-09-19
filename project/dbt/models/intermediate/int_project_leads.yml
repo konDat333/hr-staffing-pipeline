@@ -1,0 +1,47 @@
+version: 2
+
+models:
+  - name: int_project_leads
+    description: >
+      Active employees assigned as `lead`, ranked within each project. One
+      row per (project, lead). The lead shown in marts is `lead_rank = 1`:
+      billable first, then more weekly hours, then the earliest assignment.
+      Keeping every candidate (not only rank 1) makes the selection rule
+      visible and testable.
+    columns:
+      - name: project_code
+        description: Project identifier. Not unique here - a project with two active leads has two rows.
+        tests:
+          - not_null
+      - name: lead_employee_id
+        description: Employee assigned as lead. Active employees only.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_employees')
+                field: employee_id
+      - name: lead_name
+        description: Full name of the lead candidate.
+        tests:
+          - not_null
+      - name: lead_rank
+        description: >
+          Position of this candidate within the project's leads, 1 = the
+          lead reported in marts. Ranks are unique per project, so the
+          window must be partitioned by project.
+        tests:
+          - not_null
+      - name: active_lead_count
+        description: Number of active leads on the project; equals the highest `lead_rank` of the project.
+        tests:
+          - not_null
+      - name: is_billable
+        description: Whether the lead's own assignment is billable - first ranking criterion.
+      - name: weekly_hours
+        description: Lead's weekly hours on the project - second ranking criterion.
+      - name: assignment_id
+        description: Lead's assignment - final tie-breaker, makes the choice deterministic.
+        tests:
+          - unique
+          - not_null

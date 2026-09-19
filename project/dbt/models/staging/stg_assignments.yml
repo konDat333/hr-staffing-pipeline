@@ -22,8 +22,9 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('stg_employees')
-              field: employee_id
+              arguments:
+                to: ref('stg_employees')
+                field: employee_id
       - name: project_code
         description: Project identifier, `PROJ-YYYY-NNN`.
         tests:
@@ -37,7 +38,8 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: ["lead", "consultant", "contributor", "reviewer"]
+              arguments:
+                values: ["lead", "consultant", "contributor", "reviewer"]
       - name: start_date
         description: Date the assignment starts.
         tests:

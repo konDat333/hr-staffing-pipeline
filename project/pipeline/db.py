@@ -13,7 +13,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-DEFAULT_DB_PATH = Path(os.environ.get("DUCKDB_PATH", Path(__file__).resolve().parents[1] / "warehouse.duckdb"))
+DEFAULT_DB_PATH = Path(os.environ.get("DUCKDB_PATH", Path(__file__).resolve().parents[1] / "warehouse" / "warehouse.duckdb"))
 RAW_SCHEMA = "raw"
 
 

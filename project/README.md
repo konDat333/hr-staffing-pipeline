@@ -1,17 +1,56 @@
 # HR staffing pipeline
 
-Loads the HR Excel exports from `../data` into DuckDB (`raw` schema), from
-where dbt builds the `project_staffing` model.
+Loads the HR Excel exports from `../data` into DuckDB and builds the
+`project_staffing` model with dbt.
 
-## Run
+```
+data/*.xlsx  --main.py-->  raw.*  --dbt-->  staging -> intermediate -> marts.project_staffing
+             (pandera)     (DuckDB)         (views)    (ephemeral)     (table)
+```
+
+## Run with Docker
+
+From the repository root:
 
 ```bash
-uv run main.py                          # load ../data into warehouse.duckdb
+docker compose up --build
+```
+
+This builds one image (Python 3.14 + uv + dbt-duckdb), loads the Excel files
+and runs `dbt build` (models + tests). The container exits when done; a
+non-zero exit code means the load was rejected or a dbt test failed.
+
+* `./data` is mounted read-only - replace the files there to load other data.
+* `./project/warehouse/warehouse.duckdb` is written to the host, so loads
+  accumulate between runs and the file can be inspected locally.
+
+Pass loader options after the service name:
+
+```bash
+docker compose run --rm pipeline --max-invalid-share 0.5
+```
+
+Inspect the result without leaving Docker:
+
+```bash
+docker compose run --rm --entrypoint "uv run show_db.py" pipeline marts.project_staffing
+```
+
+## Run locally with uv
+
+```bash
+cd project
+./run_pipeline.sh                       # = uv run main.py && (cd dbt && uv run dbt build)
 uv run main.py --data-dir <folder>      # load another folder with the same two files
 uv run show_db.py                       # tables, row counts, batches
-uv run show_db.py raw.employees         # latest batch of a table (--all for history)
+uv run show_db.py marts.project_staffing
+uv run show_db.py raw.employees --all   # every batch
 uv run show_db.py --sql "select ..."    # ad-hoc query
 ```
+
+dbt commands run from `project/dbt` (`uv run dbt build`, `uv run dbt test`,
+`uv run dbt docs generate`); `profiles.yml` lives there and points at the
+same DuckDB file via `DUCKDB_PATH`.
 
 ## Loading (Python)
 
@@ -58,6 +97,39 @@ selects the latest batch. Changes and deletions between exports are
 reflected, and older snapshots stay queryable
 (`where _loaded_at = ...`). Re-running on the same files adds an identical
 batch - harmless, the latest one wins.
+
+## Transformation (dbt)
+
+| layer | models | materialisation | what happens |
+|---|---|---|---|
+| staging | `stg_employees`, `stg_assignments` | view | latest raw batch, renames, casts, value normalisation (`status`/roles lower-cased, `Y/Yes/N/No` -> `is_billable`) |
+| intermediate | `int_project_assignments`, `int_project_leads` | ephemeral | assignments joined to employees (`is_active`, `employee_name`); active leads ranked per project |
+| marts | `project_staffing` | table | one row per project: lead, active team size, active weekly hours |
+
+Business rules and how the sample data exercises them:
+
+* **Only active employees** count towards `team_size` / `total_weekly_hours`.
+* **Projects with no active team stay in the output** (PROJ-2024-006: lead
+  and contributor both inactive -> 0 / 0).
+* **Project lead** = active employee assigned with role `lead`. Two active
+  leads (PROJ-2024-004): the billable one is preferred, then more weekly
+  hours, then the earliest assignment; `active_lead_count` shows there were
+  two. No active lead (PROJ-2024-006, -007): null.
+* **Email** (PII) is not selected beyond raw; duplicates are tested on the
+  source among active employees.
+
+Tests (`dbt build` runs them in dependency order; an `error` stops
+downstream models, a `warn` does not):
+
+| test | severity | why |
+|---|---|---|
+| `unique` / `not_null` on keys, `accepted_values` on categorical codes | error | basic integrity of every layer |
+| `relationships` assignments -> employees, manager -> employees | error | catches assignments to unknown or quarantined people |
+| one assignment per employee and project; one name per project code | error | double-counted people / split projects |
+| mart hours reconcile with active assignment hours | error | detects join fan-out or dropped rows |
+| `team_size = 0` iff `total_weekly_hours = 0` | error | internal consistency of the mart |
+| project without an active lead; more than one active lead | warn | real in the sample data, reported not hidden |
+| assignment above 40 h/week; employee above 40 h/week in total | warn | plausible but worth a look |
 
 ## Fixtures
 

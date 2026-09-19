@@ -35,12 +35,14 @@ models:
         description: Employment status, lower-cased to `active` or `inactive`.
         tests:
           - accepted_values:
-              values: ["active", "inactive"]
+              arguments:
+                values: ["active", "inactive"]
       - name: manager_employee_id
         description: "`employee_id` of the person this employee reports to; null for top-level managers."
         tests:
           - relationships:
-              to: ref('stg_employees')
-              field: employee_id
+              arguments:
+                to: ref('stg_employees')
+                field: employee_id
       - name: loaded_at
         description: Timestamp of the raw batch this row comes from.

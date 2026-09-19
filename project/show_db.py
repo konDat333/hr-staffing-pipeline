@@ -19,7 +19,7 @@ from pipeline.db import DEFAULT_DB_PATH
 def show_overview(con: duckdb.DuckDBPyConnection) -> None:
     tables = con.execute(
         """
-        select table_schema, table_name
+        select table_schema, table_name, table_type
         from information_schema.tables
         where table_schema not in ('information_schema', 'pg_catalog')
         order by 1, 2
@@ -28,12 +28,27 @@ def show_overview(con: duckdb.DuckDBPyConnection) -> None:
     if not tables:
         print("database is empty")
         return
-    print(f"{'table':<28}{'rows':>8}{'batches':>10}  latest batch")
-    for schema, table in tables:
-        rows, batches, latest = con.execute(
-            f"select count(*), count(distinct _loaded_at), max(_loaded_at)::varchar from {schema}.{table}"
+    print(f"{'table':<34}{'type':<7}{'rows':>7}{'batches':>9}  latest batch")
+    for schema, table, table_type in tables:
+        name = f"{schema}.{table}"
+        rows = con.execute(f"select count(*) from {name}").fetchone()[0]
+        if _has_column(con, schema, table, "_loaded_at"):
+            batches, latest = con.execute(
+                f"select count(distinct _loaded_at), max(_loaded_at)::varchar from {name}"
+            ).fetchone()
+        else:
+            batches, latest = "", ""
+        kind = "view" if table_type == "VIEW" else "table"
+        print(f"{name:<34}{kind:<7}{rows:>7}{batches:>9}  {latest}")
+
+
+def _has_column(con: duckdb.DuckDBPyConnection, schema: str, table: str, column: str) -> bool:
+    return bool(
+        con.execute(
+            "select 1 from information_schema.columns where table_schema = ? and table_name = ? and column_name = ?",
+            [schema, table, column],
         ).fetchone()
-        print(f"{schema + '.' + table:<28}{rows:>8}{batches:>10}  {latest}")
+    )
 
 
 def _show(rel: duckdb.DuckDBPyRelation, limit: int) -> None:
@@ -43,14 +58,18 @@ def _show(rel: duckdb.DuckDBPyRelation, limit: int) -> None:
 def show_table(
     con: duckdb.DuckDBPyConnection, name: str, all_batches: bool, limit: int, cols: str | None
 ) -> None:
-    if cols:
+    schema, _, table = name.partition(".")
+    batched = _has_column(con, schema, table, "_loaded_at")
+    if not batched:
+        select, where = cols or "*", ""
+    elif cols:
         select = cols + (", _loaded_at::timestamp(0)::varchar as _loaded_at" if all_batches else "")
+        where = "" if all_batches else f"where _loaded_at = (select max(_loaded_at) from {name})"
     elif all_batches:
         # Keep the batch column but trim it to seconds so rows stay narrow.
-        select = "* replace (_loaded_at::timestamp(0)::varchar as _loaded_at)"
+        select, where = "* replace (_loaded_at::timestamp(0)::varchar as _loaded_at)", ""
     else:
-        select = "* exclude (_loaded_at)"
-    where = "" if all_batches else f"where _loaded_at = (select max(_loaded_at) from {name})"
+        select, where = "* exclude (_loaded_at)", f"where _loaded_at = (select max(_loaded_at) from {name})"
     _show(con.sql(f"select {select} from {name} {where} limit {limit}"), limit)
 
 

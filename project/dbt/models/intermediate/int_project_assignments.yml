@@ -1,0 +1,56 @@
+version: 2
+
+models:
+  - name: int_project_assignments
+    description: >
+      Assignments enriched with the assigned employee. Same grain as
+      `stg_assignments` (one row per assignment); adds whether the employee
+      is active and their display name. This is the single place where
+      "assignment of an active employee" is defined - marts and tests build
+      on it instead of repeating the join.
+    columns:
+      - name: assignment_id
+        description: Assignment identifier, `ASGN-NNNN`. Primary key - the join must not multiply rows.
+        tests:
+          - unique
+          - not_null
+      - name: project_code
+        description: Project identifier, `PROJ-YYYY-NNN`.
+        tests:
+          - not_null
+      - name: project_name
+        description: Project name as reported.
+        tests:
+          - not_null
+      - name: employee_id
+        description: Assigned employee. Every assignment must resolve to a known employee.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_employees')
+                field: employee_id
+      - name: employee_name
+        description: "`first_name` and `last_name` of the employee, for display in marts."
+        tests:
+          - not_null
+      - name: is_active
+        description: >
+          True when the employee's status is `active`. Null would mean the
+          employee was not found - the join must be complete.
+        tests:
+          - not_null
+      - name: assignment_role
+        description: Role on the project, lower-cased (`lead`, `consultant`, `contributor`, `reviewer`).
+        tests:
+          - not_null
+      - name: start_date
+        description: Date the assignment starts.
+      - name: weekly_hours
+        description: Hours per week allocated to this assignment.
+        tests:
+          - not_null
+      - name: is_billable
+        description: Whether the assignment's hours are billable.
+        tests:
+          - not_null

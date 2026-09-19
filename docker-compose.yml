@@ -1,0 +1,8 @@
+services:
+  pipeline:
+    build: .
+    volumes:
+      # Source exports from the host; swap files here without rebuilding
+      - ./data:/app/data:ro
+      # DuckDB file lands on the host so loads accumulate and can be inspected
+      - ./project/warehouse:/app/project/warehouse

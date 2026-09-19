@@ -15,6 +15,9 @@ project/scripts/
 target/
 dbt_packages/
 logs/
-
-
+# task brief kept locally
 project_descr.md
+
+# pipeline output / dbt user file
+project/warehouse/
+project/dbt/.user.yml

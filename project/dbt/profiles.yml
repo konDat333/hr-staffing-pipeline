@@ -5,5 +5,5 @@ hr_staffing:
   outputs:
     dev:
       type: duckdb
-      path: "{{ env_var('DUCKDB_PATH', '../warehouse.duckdb') }}"
+      path: "{{ env_var('DUCKDB_PATH', '../warehouse/warehouse.duckdb') }}"
       threads: 1

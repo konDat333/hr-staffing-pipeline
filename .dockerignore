@@ -1,0 +1,13 @@
+.git
+.claude
+**/.venv
+**/__pycache__
+**/target
+**/logs
+**/dbt_packages
+**/*.duckdb
+**/*.duckdb.wal
+project/warehouse
+project/scripts
+project/dbt/.user.yml
+project_descr.md
