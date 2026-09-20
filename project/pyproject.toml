@@ -1,7 +1,7 @@
 [project]
-name = "project"
+name = "hr-staffing-pipeline"
 version = "0.1.0"
-description = "Add your description here"
+description = "Loads HR Excel exports into DuckDB and builds the project_staffing model with dbt"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -11,3 +11,12 @@ dependencies = [
     "pandas[excel]>=3.0.5",
     "pandera>=0.33.1",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

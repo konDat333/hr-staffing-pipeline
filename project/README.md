@@ -46,7 +46,14 @@ uv run show_db.py                       # tables, row counts, batches
 uv run show_db.py marts.project_staffing
 uv run show_db.py raw.employees --all   # every batch
 uv run show_db.py --sql "select ..."    # ad-hoc query
+uv run pytest                           # unit tests for the Python loader
 ```
+
+The pytest suite (`tests/`) covers the loader's edge cases on generated
+files: header detection with varying metadata rows, missing columns,
+quarantine and error reporting, case-insensitive categorical values, the
+physical bounds on hours, batch appends in DuckDB, and the abort threshold
+end to end. dbt has its own tests (see below); `dbt build` runs them.
 
 dbt commands run from `project/dbt` (`uv run dbt build`, `uv run dbt test`,
 `uv run dbt docs generate`); `profiles.yml` lives there and points at the
