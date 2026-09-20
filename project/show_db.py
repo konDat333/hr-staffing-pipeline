@@ -52,7 +52,8 @@ def _has_column(con: duckdb.DuckDBPyConnection, schema: str, table: str, column:
 
 
 def _show(rel: duckdb.DuckDBPyRelation, limit: int) -> None:
-    rel.show(max_width=shutil.get_terminal_size().columns, max_rows=limit)
+    # No terminal (Docker, CI, pipes) -> fall back to a width that fits the mart
+    rel.show(max_width=shutil.get_terminal_size(fallback=(140, 24)).columns, max_rows=limit)
 
 
 def show_table(

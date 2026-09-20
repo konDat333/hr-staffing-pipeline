@@ -9,3 +9,7 @@ uv run main.py "$@"
 
 cd dbt
 uv run dbt build
+# Show the result so a container run ends with the table, not just a summary
+cd ..
+uv run show_db.py marts.project_staffing
+ 
