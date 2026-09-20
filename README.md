@@ -1,87 +1,163 @@
-# Data Engineer Task
+# HR staffing pipeline
 
-## Overview
+Loads the HR Excel exports from `../data` into DuckDB and builds the
+`project_staffing` model with dbt.
 
-You are joining a team that maintains an internal data warehouse built with **dbt** and **BigQuery**. Your task is to design and implement a small data pipeline that demonstrates your understanding of dbt concepts, Python data processing, and testing.
+```
+data/*.xlsx  --main.py-->  raw.*  --dbt-->  staging -> intermediate -> marts.project_staffing
+             (pandera)     (DuckDB)         (views)    (ephemeral)     (table)
+```
 
-## Your Task
+## Run with Docker
 
-Build a data pipeline that processes **employee project assignments** data using **Python** and **dbt**.
+From the repository root:
 
-### Source Data
+```bash
+docker compose up --build
+```
 
-You are provided with two Excel files mocking exports from an HR system:
+This builds one image (Python 3.14 + uv + dbt-duckdb), loads the Excel files
+and runs `dbt build` (models + tests). The container exits when done; a
+non-zero exit code means the load was rejected or a dbt test failed.
 
-- `data/hr_employees_export.xlsx` - Employee master data
-- `data/project_assignments_report.xlsx` - Project assignment records
+* `./data` is mounted read-only - replace the files there to load other data.
+* `./project/warehouse/warehouse.duckdb` is written to the host, so loads
+  accumulate between runs and the file can be inspected locally.
 
-Open the files and explore their structure before starting.
+Pass loader options after the service name:
 
-### Requirements
+```bash
+docker compose run --rm pipeline --max-invalid-share 0.5
+```
 
-#### Part 1: Data Loading (Python)
+Inspect the result without leaving Docker:
 
-Write a Python script that reads the Excel files and loads the data into your database (or outputs CSV files for dbt seeds). Follow good software engineering practices.
+```bash
+docker compose run --rm --entrypoint "uv run show_db.py" pipeline marts.project_staffing
+```
 
-#### Part 2: Data Transformation (dbt)
+## Run locally with uv
 
-Create a dbt project that produces a model called `project_staffing` with the following characteristics:
+```bash
+cd project
+./run_pipeline.sh                       # = uv run main.py && (cd dbt && uv run dbt build)
+uv run main.py --data-dir <folder>      # load another folder with the same two files
+uv run show_db.py                       # tables, row counts, batches
+uv run show_db.py marts.project_staffing
+uv run show_db.py raw.employees --all   # every batch
+uv run show_db.py --sql "select ..."    # ad-hoc query
+uv run pytest                           # unit tests for the Python loader
+```
 
-1. **Information required** (how you structure it is up to you):
-   - Project code and name
-   - Project lead - who is leading the project?
-   - Team size - how many active employees are assigned?
-   - Total weekly hours allocated (active employees only)
+The pytest suite (`tests/`) covers the loader's edge cases on generated
+files: header detection with varying metadata rows, missing columns,
+quarantine and error reporting, case-insensitive categorical values, the
+physical bounds on hours, batch appends in DuckDB, and the abort threshold
+end to end. dbt has its own tests (see below); `dbt build` runs them.
 
-2. **Business rules to implement**:
-   - Only include **active employees** in team size and hours aggregations
-   - A project should appear in the output even if it has no active employees assigned
-   - The source data contains inconsistencies that need to be cleaned (you decide where and how)
+dbt commands run from `project/dbt` (`uv run dbt build`, `uv run dbt test`,
+`uv run dbt docs generate`); `profiles.yml` lives there and points at the
+same DuckDB file via `DUCKDB_PATH`.
 
-3. **Testing requirements**:
-   - Add at least 2 meaningful dbt tests
-   - Tests should validate data quality, not just column existence
+## Loading (Python)
 
-4. **Documentation**:
-   - Add column descriptions for your model in a `schema.yml` file
+`pipeline/excel.py` reads each export, finds the header row (the exports
+carry report metadata above it) and renames columns to snake_case.
 
-### Technical Setup
+`pipeline/schemas.py` holds pandera **row-level** contracts: id formats,
+allowed values, ranges, dates, and within-row consistency (an Inactive
+employee must have a termination date, and it must be after the hire date).
 
-Use **Docker** to run the solution. You may choose your database for the project, viable options are: psql, clickhouse, duckdb.
+### Validation strategy: quarantine, not fail-fast
 
-Provide a `docker-compose.yml` (if needed) and clear instructions in a `README.md`.
+A single bad row should not block a whole load - stale data is usually
+worse for analytics than data with a known gap. So:
 
-Use **uv** for Python package management (preferred over pip or poetry).
+* rows that pass go to `raw.<table>`, typed;
+* rows that fail go to `raw.<table>_quarantine` as text, with an `_errors`
+  column naming every violated check;
+* if quarantined rows exceed `--max-invalid-share` (default 10%, env
+  `MAX_INVALID_SHARE`) in any source, or a source has no valid rows, the run
+  aborts and **nothing** is written - that many failures means the source is
+  broken, not dirty.
 
-### Deliverables
+Both sources are validated before anything is written, so a batch is
+all-or-nothing.
 
-- A link to a **public git repository** with your solution, you may fork this one if you want
-- The repository should contain at least one **merged pull request** demonstrating your git workflow
-- A `README.md` with clear instructions on how to run the solution
+Only checks that can be decided on one row live in pandera. Relational
+rules - unique ids, `reports_to` pointing to an existing employee, one
+project code having one name, an assignment's employee existing in HR -
+are dbt tests on the staging models. Splitting them this way means
+quarantining a row can never cause another row to fail.
 
-### Evaluation Criteria
+**Downstream effect:** a quarantined employee is missing from
+`stg_employees`, so their assignments will fail the dbt `relationships`
+test. That is intended: quarantine turns a hard pipeline failure into a
+visible data-quality signal, it does not hide the problem.
 
-We will evaluate:
+### Raw layer: every load is kept
 
-| Criteria | What we're looking for |
-|----------|------------------------|
-| **Correctness** | Does the output match the requirements? |
-| **Python skills** | Is the extraction script clean and handles edge cases? |
-| **dbt understanding** | Is the project well-structured? Appropriate use of models? |
-| **Testing strategy** | Are the tests meaningful and well-chosen? |
-| **Documentation** | Are columns documented? Is the README clear? |
-| **Decision-making** | How did you handle ambiguous requirements? |
+Each run appends *all* valid rows of every source with one shared
+`_loaded_at` timestamp (same for both tables and their quarantines). Raw is
+therefore an immutable history of what the HR system exported; dbt staging
+selects the latest batch. Changes and deletions between exports are
+reflected, and older snapshots stay queryable
+(`where _loaded_at = ...`). Re-running on the same files adds an identical
+batch - harmless, the latest one wins.
 
-### AI Policy
+## Transformation (dbt)
 
-We have no way to verify whether you used AI tools to complete this task - and frankly, we don't mind if you did. AI-assisted development is part of modern engineering.
+| layer | models | materialisation | what happens |
+|---|---|---|---|
+| staging | `stg_employees`, `stg_assignments` | view | latest raw batch, renames, casts, value normalisation (`status`/roles lower-cased, `Y/Yes/N/No` -> `is_billable`) |
+| intermediate | `int_project_assignments`, `int_project_leads` | ephemeral | assignments joined to employees (`is_active`, `employee_name`); active leads ranked per project |
+| marts | `project_staffing` | table | one row per project: lead, active team size, active weekly hours |
 
-However, during the technical interview, we will ask you to explain your decisions in detail: why you structured the models this way, why you chose certain tests, how you handled the data inconsistencies, and so on. What matters is that you **understand** the solution, not whether you wrote every line yourself.
+Business rules and how the sample data exercises them:
 
-### Questions?
+* **Only active employees** count towards `team_size` / `total_weekly_hours`.
+* **Projects with no active team stay in the output** (PROJ-2024-006: lead
+  and contributor both inactive -> 0 / 0).
+* **Project lead** = active employee assigned with role `lead`. Two active
+  leads (PROJ-2024-004): the billable one is preferred, then more weekly
+  hours, then the earliest assignment, and a warning is raised at the
+  intermediate layer. No active lead (PROJ-2024-006, -007): null.
+* **Email** (PII) is not selected beyond raw; duplicates are tested on the
+  source among active employees.
 
-If something is unclear, make a reasonable assumption and document it in your README. We will discuss your decisions during the interview.
+Tests (`dbt build` runs them in dependency order; an `error` stops
+downstream models, a `warn` does not):
 
----
+| test | severity | why |
+|---|---|---|
+| `unique` / `not_null` on keys, `accepted_values` on categorical codes | error | basic integrity of every layer |
+| `relationships` assignments -> employees, manager -> employees | error | catches assignments to unknown or quarantined people |
+| active ⇔ no termination date; termination ≥ hire; nobody reports to themselves | error | mirror the loader's row-level contract, so the rules hold even if raw is filled another way |
+| one assignment per employee and project; one name per project code | error | double-counted people / split projects |
+| lead ranks unique within a project | error | guards the ranking window in `int_project_leads` |
+| mart hours reconcile with active assignment hours | error | detects join fan-out or dropped rows |
+| `team_size = 0` iff `total_weekly_hours = 0` | error | internal consistency of the mart |
+| project without an active lead; more than one active lead | warn | real in the sample data, reported not hidden |
+| assignment above 40 h/week; employee above 40 h/week in total | warn | plausible but worth a look |
+| active employee reporting to an inactive manager | warn | valid data, org chart lagging behind HR |
 
-**Good luck!**
+**Duplicates.** Across loads they are resolved by taking the latest raw
+batch. Within one export a duplicate key is a contradiction (which of the
+two rows is right?) that the pipeline cannot resolve without inventing
+data, so it fails the build and is left to the data owner. The one
+exception is several leads on a project, where a documented ranking picks
+one and a warning reports it.
+
+Severity rule of thumb: would `project_staffing` be wrong if this row is
+true? Yes -> `error`, no -> `warn`.
+
+## Fixtures
+
+* `data/*_dirty.xlsx` - one or two row-level errors (< 10%): the load
+  succeeds and the rows land in quarantine.
+* `data/*_invalid.xlsx` - one error per rule (~25%): trips the circuit
+  breaker. They also contain relational errors (duplicate ids, unknown
+  manager, two names for one project code) that are left for dbt tests.
+
+Copy a pair into a folder under the original file names and run
+`uv run main.py --data-dir <folder>`.
