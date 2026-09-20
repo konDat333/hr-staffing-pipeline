@@ -58,6 +58,10 @@ class EmployeeSchema(pa.DataFrameModel):
         """Inactive employees must have a termination date and vice versa."""
         return (df["status"].str.lower() == "inactive") == df["termination_date"].notna()
 
+    @pa.dataframe_check
+    def no_self_reporting(cls, df) -> Series[bool]:
+        return df["reports_to"].isna() | (df["reports_to"] != df["employee_id"])
+
 
 class AssignmentSchema(pa.DataFrameModel):
     assignment_id: Series[str] = pa.Field(str_matches=ASSIGNMENT_ID_PATTERN)

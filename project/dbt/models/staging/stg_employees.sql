@@ -23,3 +23,4 @@ select
     reports_to                      as manager_employee_id,
     _loaded_at                      as loaded_at
 from latest_batch
+    

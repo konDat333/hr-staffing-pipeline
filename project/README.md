@@ -113,8 +113,8 @@ Business rules and how the sample data exercises them:
   and contributor both inactive -> 0 / 0).
 * **Project lead** = active employee assigned with role `lead`. Two active
   leads (PROJ-2024-004): the billable one is preferred, then more weekly
-  hours, then the earliest assignment; `active_lead_count` shows there were
-  two. No active lead (PROJ-2024-006, -007): null.
+  hours, then the earliest assignment, and a warning is raised at the
+  intermediate layer. No active lead (PROJ-2024-006, -007): null.
 * **Email** (PII) is not selected beyond raw; duplicates are tested on the
   source among active employees.
 
@@ -125,11 +125,24 @@ downstream models, a `warn` does not):
 |---|---|---|
 | `unique` / `not_null` on keys, `accepted_values` on categorical codes | error | basic integrity of every layer |
 | `relationships` assignments -> employees, manager -> employees | error | catches assignments to unknown or quarantined people |
+| active ⇔ no termination date; termination ≥ hire; nobody reports to themselves | error | mirror the loader's row-level contract, so the rules hold even if raw is filled another way |
 | one assignment per employee and project; one name per project code | error | double-counted people / split projects |
+| lead ranks unique within a project | error | guards the ranking window in `int_project_leads` |
 | mart hours reconcile with active assignment hours | error | detects join fan-out or dropped rows |
 | `team_size = 0` iff `total_weekly_hours = 0` | error | internal consistency of the mart |
 | project without an active lead; more than one active lead | warn | real in the sample data, reported not hidden |
 | assignment above 40 h/week; employee above 40 h/week in total | warn | plausible but worth a look |
+| active employee reporting to an inactive manager | warn | valid data, org chart lagging behind HR |
+
+**Duplicates.** Across loads they are resolved by taking the latest raw
+batch. Within one export a duplicate key is a contradiction (which of the
+two rows is right?) that the pipeline cannot resolve without inventing
+data, so it fails the build and is left to the data owner. The one
+exception is several leads on a project, where a documented ranking picks
+one and a warning reports it.
+
+Severity rule of thumb: would `project_staffing` be wrong if this row is
+true? Yes -> `error`, no -> `warn`.
 
 ## Fixtures
 

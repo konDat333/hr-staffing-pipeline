@@ -30,12 +30,6 @@ models:
                 field: employee_id
       - name: lead_name
         description: Full name of the project lead; null when there is none.
-      - name: active_lead_count
-        description: >
-          Number of active employees assigned as `lead`. Values above 1 are
-          reported as a warning - the source should name a single lead.
-        tests:
-          - not_null
       - name: team_size
         description: Number of distinct active employees assigned to the project. 0 when nobody active is assigned.
         tests:

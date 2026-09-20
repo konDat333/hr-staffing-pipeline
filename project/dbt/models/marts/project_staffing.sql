@@ -26,7 +26,6 @@ select
     p.project_name,
     l.lead_employee_id,
     l.lead_name,
-    coalesce(l.active_lead_count, 0)  as active_lead_count,
     p.team_size,
     p.total_weekly_hours
 from projects as p
